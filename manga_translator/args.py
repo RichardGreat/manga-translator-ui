@@ -2,6 +2,7 @@ import argparse
 import os
 import sys
 
+from .config import DEVICE_STAGES
 from .image_formats import OUTPUT_IMAGE_FORMATS
 
 
@@ -65,6 +66,12 @@ def create_parser():
                              help='使用 GPU 加速（覆盖配置文件）')
     local_parser.add_argument('--disable-onnx-gpu', action='store_true', default=None,
                              help='禁用 ONNX Runtime GPU 加速（覆盖配置文件）')
+    for _stage in DEVICE_STAGES:
+        local_parser.add_argument(f'--device-{_stage}', dest=f'device_{_stage}',
+                                 choices=['auto', 'gpu', 'cpu'], default=None,
+                                 help=f'{_stage} 阶段使用的设备：auto 跟随 --use-gpu（覆盖配置文件）')
+    local_parser.add_argument('--no-oom-fallback', action='store_true', default=False,
+                             help='显存不足时不自动回退到 CPU，直接报错')
     local_parser.add_argument('--format', default=None,
                              help=f"输出格式：{'/'.join(OUTPUT_IMAGE_FORMATS)}（覆盖配置文件）")
     local_parser.add_argument('--batch-size', type=int, default=None,

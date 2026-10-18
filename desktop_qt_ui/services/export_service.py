@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import numpy as np
+from manga_translator.config import DEVICE_STAGES
 from manga_translator.image_formats import resolve_pil_image_format
 from manga_translator.rendering.rich_text import is_redundant_plain_document
 from manga_translator.utils import open_pil_image, save_pil_image
@@ -809,6 +810,19 @@ class ExportService:
         if "use_gpu" in cli_config:
             translator_params["use_gpu"] = cli_config["use_gpu"]
             self.logger.info(f"Setting GPU configuration: use_gpu={cli_config['use_gpu']}")
+
+        # 逐阶段设备配置与显存不足回退，需提升到顶层参数（MangaTranslator 只读取顶层键）
+        for stage in DEVICE_STAGES:
+            key = f"device_{stage}"
+            if key in cli_config:
+                translator_params[key] = cli_config[key]
+        if "oom_fallback_to_cpu" in cli_config:
+            translator_params["oom_fallback_to_cpu"] = cli_config["oom_fallback_to_cpu"]
+        stage_devices = {
+            stage: cli_config.get(f"device_{stage}", "auto") for stage in DEVICE_STAGES
+        }
+        if any(value not in (None, "", "auto") for value in stage_devices.values()):
+            self.logger.info(f"Per-stage device configuration: {stage_devices}")
 
         # 设置其他参数
         translator_params.update(config)

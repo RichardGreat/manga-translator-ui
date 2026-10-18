@@ -20,6 +20,8 @@ ROOT_DIR = (
 sys.path.insert(0, str(ROOT_DIR))
 sys.path.insert(0, str(ROOT_DIR / 'desktop_qt_ui'))
 
+from manga_translator.config import DEVICE_STAGES
+
 # 内存管理默认值
 DEFAULT_MEMORY_THRESHOLD_MB = 8000  # 默认8GB
 DEFAULT_BATCH_SIZE_PER_RESTART = 50  # 每处理N张图片后检查
@@ -178,7 +180,16 @@ async def translate_files(input_paths, output_dir, config_service, verbose=False
     # disable_onnx_gpu: 命令行参数优先
     if hasattr(args, 'disable_onnx_gpu') and args.disable_onnx_gpu is not None:
         cli_config['disable_onnx_gpu'] = args.disable_onnx_gpu
-    
+
+    # 逐阶段设备与显存不足回退：命令行参数优先
+    for stage in DEVICE_STAGES:
+        arg_name = f'device_{stage}'
+        value = getattr(args, arg_name, None)
+        if value is not None:
+            cli_config[arg_name] = value
+    if getattr(args, 'no_oom_fallback', False):
+        cli_config['oom_fallback_to_cpu'] = False
+
     # format: 命令行参数优先
     if hasattr(args, 'format') and args.format is not None:
         cli_config['format'] = args.format
@@ -508,6 +519,13 @@ async def run_local_mode(args):
                 cli_config['use_gpu'] = args.use_gpu
             if hasattr(args, 'disable_onnx_gpu') and args.disable_onnx_gpu is not None:
                 cli_config['disable_onnx_gpu'] = args.disable_onnx_gpu
+            for stage in DEVICE_STAGES:
+                arg_name = f'device_{stage}'
+                value = getattr(args, arg_name, None)
+                if value is not None:
+                    cli_config[arg_name] = value
+            if getattr(args, 'no_oom_fallback', False):
+                cli_config['oom_fallback_to_cpu'] = False
             config_dict['cli'] = cli_config
             
             success_count, skipped_count, failed_count = await translate_with_subprocess(

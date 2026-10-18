@@ -12,7 +12,7 @@ from ui.main_page import env_management
 
 ROOT = _bootstrap.ROOT
 LOCALE_DIR = ROOT / "desktop_qt_ui" / "locales"
-LOCALES = ("zh_CN", "zh_TW", "en_US", "ja_JP", "ko_KR", "es_ES")
+LOCALES = ("zh_CN", "zh_TW", "en_US", "ja_JP", "ko_KR", "es_ES", "ru_RU")
 ERROR_KEYS = {
     "api_models_error_failed",
     "api_models_error_unsupported",

@@ -19,6 +19,7 @@ from manga_translator.config import (
     Alignment,
     Colorizer,
     Detector,
+    DeviceChoice,
     Direction,
     Inpainter,
     InpaintPrecision,
@@ -1127,6 +1128,12 @@ class MainAppLogic(QObject):
     # region UI数据提供
     def get_display_mapping(self, key: str) -> Optional[Dict[str, str]]:
         # 每次都动态生成翻译映射，确保语言切换时能正确更新
+        # 逐阶段设备选择共用同一组选项
+        device_choice_map = {
+            "auto": self._t("device_choice_auto"),
+            "gpu": self._t("device_choice_gpu"),
+            "cpu": self._t("device_choice_cpu"),
+        }
         display_name_maps = {
             "alignment": {
                 "auto": self._t("alignment_auto"),
@@ -1139,6 +1146,12 @@ class MainAppLogic(QObject):
                 "h": self._t("direction_horizontal"),
                 "v": self._t("direction_vertical")
             },
+            "device_detection": device_choice_map,
+            "device_ocr": device_choice_map,
+            "device_inpainting": device_choice_map,
+            "device_upscaling": device_choice_map,
+            "device_colorization": device_choice_map,
+            "device_translation": device_choice_map,
             "upscaler": {
                 "waifu2x": "Waifu2x",
                 "esrgan": "ESRGAN",
@@ -1313,6 +1326,13 @@ class MainAppLogic(QObject):
                     "ignore_errors": self._t("label_ignore_errors"),
                     "use_gpu": self._t("label_use_gpu"),
                     "disable_onnx_gpu": self._t("label_disable_onnx_gpu"),
+                    "device_detection": self._t("label_device_detection"),
+                    "device_ocr": self._t("label_device_ocr"),
+                    "device_inpainting": self._t("label_device_inpainting"),
+                    "device_upscaling": self._t("label_device_upscaling"),
+                    "device_colorization": self._t("label_device_colorization"),
+                    "device_translation": self._t("label_device_translation"),
+                    "oom_fallback_to_cpu": self._t("label_oom_fallback_to_cpu"),
                     "context_size": self._t("label_context_size"),
                     "format": self._t("label_format"),
                     "overwrite": self._t("label_overwrite"),
@@ -1395,6 +1415,12 @@ class MainAppLogic(QObject):
                 "4x-denoise3x",
             ],
             "translator": [member.value for member in Translator],
+            "device_detection": [member.value for member in DeviceChoice],
+            "device_ocr": [member.value for member in DeviceChoice],
+            "device_inpainting": [member.value for member in DeviceChoice],
+            "device_upscaling": [member.value for member in DeviceChoice],
+            "device_colorization": [member.value for member in DeviceChoice],
+            "device_translation": [member.value for member in DeviceChoice],
             "keep_lang": ["none"] + list(self.translation_service.get_keep_languages().keys()),
             "detector": [member.value for member in Detector],
             "colorizer": [member.value for member in Colorizer],

@@ -13,6 +13,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
+from manga_translator.config import DEVICE_STAGES
 from manga_translator.server.core.logging_manager import add_log
 
 logger = logging.getLogger('manga_translator.server')
@@ -311,7 +312,12 @@ def get_global_translator(params: dict = None):
             'use_gpu': server_config.get('use_gpu', False),
             'verbose': server_config.get('verbose', False),
             'models_ttl': server_config.get('models_ttl', 0),
+            'oom_fallback_to_cpu': server_config.get('oom_fallback_to_cpu', True),
         }
+        # 逐阶段 CPU/GPU 配置
+        for stage in DEVICE_STAGES:
+            key = f'device_{stage}'
+            params[key] = server_config.get(key, 'auto')
         retry_attempts = server_config.get('retry_attempts')
         if retry_attempts is not None:
             params['attempts'] = retry_attempts

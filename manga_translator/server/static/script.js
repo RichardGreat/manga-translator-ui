@@ -457,6 +457,7 @@ async function loadI18n() {
             else if (browserLang.startsWith('ja')) currentLocale = 'ja_JP';
             else if (browserLang.startsWith('ko')) currentLocale = 'ko_KR';
             else if (browserLang.startsWith('es')) currentLocale = 'es_ES';
+            else if (browserLang.startsWith('ru')) currentLocale = 'ru_RU';
         }
 
         // 3. 从服务器获取翻译数据（使用桌面版的语言文件）

@@ -12,7 +12,7 @@ from services.i18n_service import I18nManager
 
 ROOT = _bootstrap.ROOT
 LOCALE_DIR = ROOT / "desktop_qt_ui" / "locales"
-LOCALES = ("zh_CN", "zh_TW", "en_US", "ja_JP", "ko_KR", "es_ES")
+LOCALES = ("zh_CN", "zh_TW", "en_US", "ja_JP", "ko_KR", "es_ES", "ru_RU")
 SETTING_KEY = "balloon_fill_mask_layout"
 LABEL_KEY = f"label_{SETTING_KEY}"
 DESCRIPTION_KEY = f"desc_render_{SETTING_KEY}"
@@ -52,7 +52,7 @@ def test_balloon_fill_mask_layout_translations_do_not_fall_back_to_chinese():
             assert manager.translate(key) == catalog[key], (locale, key)
 
     chinese_description = catalogs["zh_CN"][DESCRIPTION_KEY]
-    for locale in ("en_US", "ja_JP", "ko_KR", "es_ES"):
+    for locale in ("en_US", "ja_JP", "ko_KR", "es_ES", "ru_RU"):
         assert catalogs[locale][DESCRIPTION_KEY] != chinese_description, locale
 
 

@@ -67,6 +67,7 @@ class I18nManager:
             "ja_JP": LocaleInfo("ja_JP", "日本語", "Japanese"),
             "ko_KR": LocaleInfo("ko_KR", "한국어", "Korean"),
             "es_ES": LocaleInfo("es_ES", "Español", "Spanish"),
+            "ru_RU": LocaleInfo("ru_RU", "Русский", "Russian"),
         }
     
     def _detect_system_locale(self) -> str:

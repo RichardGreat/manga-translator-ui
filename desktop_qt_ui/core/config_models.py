@@ -141,6 +141,14 @@ class CliSettings(BaseModel):
     ignore_errors: bool = False
     use_gpu: bool = True
     disable_onnx_gpu: bool = False  # 禁用 ONNX Runtime GPU 加速（强制 ONNX 走 CPU）
+    # 逐阶段设备选择：auto 跟随 use_gpu，可把部分阶段放到 CPU 以节省显存
+    device_detection: str = "auto"
+    device_ocr: str = "auto"
+    device_inpainting: str = "auto"
+    device_upscaling: str = "auto"
+    device_colorization: str = "auto"
+    device_translation: str = "auto"
+    oom_fallback_to_cpu: bool = True  # 显存不足时自动改用 CPU 重试该阶段
     context_size: int = 3
     format: str = "不指定"
     overwrite: bool = True

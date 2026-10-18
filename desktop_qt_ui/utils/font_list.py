@@ -76,6 +76,7 @@ _FONT_SEARCH_PLACEHOLDERS = {
     "ja_JP": "フォントを検索…",
     "ko_KR": "글꼴 검색…",
     "es_ES": "Buscar fuentes…",
+    "ru_RU": "Поиск шрифтов…",
     "en_US": "Search fonts…",
 }
 _SYSTEM_FONTS_ENABLED = True

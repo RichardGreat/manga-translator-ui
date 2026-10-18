@@ -17,7 +17,7 @@ import regex as re
 import torch
 from PIL import Image, ImageFile
 
-from .config import Colorizer, Config, Inpainter, Renderer, Translator
+from .config import DEVICE_STAGES, Colorizer, Config, Inpainter, Renderer, Translator
 from .server_paths import normalize_server_resource_path
 from .utils import (
     BASE_PATH,
@@ -317,6 +317,8 @@ class MangaTranslator:
     ignore_errors: bool
     _gpu_limited_memory: bool
     device: Optional[str]
+    _stage_devices: dict[str, str]
+    oom_fallback_to_cpu: bool
     kernel_size: Optional[int]
     models_ttl: int
     _progress_hooks: list[Any]
@@ -343,6 +345,8 @@ class MangaTranslator:
         self.font_family = None
         self.kernel_size = None
         self.device = None
+        self._stage_devices = {}
+        self.oom_fallback_to_cpu = True
         self.text_output_file = params.get('save_text_file', None)
         self._gpu_limited_memory = False
         self.ignore_errors = False
@@ -433,6 +437,29 @@ class MangaTranslator:
                 'Automatically falling back to CPU mode.'
             )
             self.device = 'cpu'
+
+        # 每个流水线阶段可单独选择 CPU/GPU，'auto' 跟随全局 use_gpu 设置。
+        # 这样低显存显卡可以把部分阶段放到 CPU 上运行，避免显存不足。
+        gpu_available = torch.cuda.is_available() or torch.backends.mps.is_available()
+        self._gpu_device = device if gpu_available else 'cpu'
+        self._stage_devices = {}
+        for stage in DEVICE_STAGES:
+            choice = params.get(f'device_{stage}') or 'auto'
+            choice = str(getattr(choice, 'value', choice)).strip().lower()
+            if choice == 'cpu':
+                self._stage_devices[stage] = 'cpu'
+            elif choice == 'gpu':
+                if not gpu_available:
+                    logger.warning(
+                        f'Stage "{stage}" was set to GPU but no CUDA or Metal device is available; using CPU instead.'
+                    )
+                self._stage_devices[stage] = self._gpu_device
+            else:
+                self._stage_devices[stage] = self.device
+        self.oom_fallback_to_cpu = bool(params.get('oom_fallback_to_cpu', True))
+        if len(set(self._stage_devices.values())) > 1:
+            assignments = ', '.join(f'{stage}={dev}' for stage, dev in self._stage_devices.items())
+            logger.info(f'Hybrid CPU/GPU execution enabled: {assignments}')
         if params.get('model_dir'):
             ModelWrapper._MODEL_DIR = params.get('model_dir')
         #todo: fix why is kernel size loaded in the constructor
@@ -510,6 +537,55 @@ class MangaTranslator:
     @property
     def using_gpu(self):
         return self.device.startswith('cuda') or self.device == 'mps'
+
+    def device_for(self, stage: str) -> str:
+        """返回该流水线阶段的运行设备；未单独配置时回退到全局设备。"""
+        # 使用 getattr 兜底：部分调用方（如测试）会绕过 __init__ 构造实例。
+        stage_devices = getattr(self, '_stage_devices', None) or {}
+        return stage_devices.get(stage) or self.device or 'cpu'
+
+    def _active_cuda_device(self) -> Optional[str]:
+        """返回当前实际使用的 CUDA 设备；混合模式下任一阶段用 GPU 即返回该设备。"""
+        stage_devices = getattr(self, '_stage_devices', None) or {}
+        candidates = [str(getattr(self, 'device', '') or '')] + [str(d) for d in stage_devices.values()]
+        for candidate in candidates:
+            if candidate.startswith('cuda'):
+                return candidate
+        return None
+
+    @staticmethod
+    def _is_oom_error(exc: BaseException) -> bool:
+        """判断异常是否为 GPU 显存不足。"""
+        oom_type = getattr(torch.cuda, 'OutOfMemoryError', None)
+        if oom_type is not None and isinstance(exc, oom_type):
+            return True
+        message = str(exc).lower()
+        # ONNX Runtime / cuBLAS 的显存不足报错不属于 torch.cuda.OutOfMemoryError，需按文本匹配。
+        return any(marker in message for marker in (
+            'out of memory',
+            'cuda_error_out_of_memory',
+            'cublas_status_alloc_failed',
+            'failed to allocate memory',
+        ))
+
+    async def _run_stage_on_device(self, stage: str, run):
+        """
+        在该阶段配置的设备上调用 run(device)。
+        若 GPU 显存不足且启用了回退，则清理显存后改用 CPU 重试一次。
+        """
+        device = self.device_for(stage)
+        try:
+            return await run(device)
+        except Exception as e:
+            fallback_enabled = getattr(self, 'oom_fallback_to_cpu', True)
+            if device == 'cpu' or not fallback_enabled or not self._is_oom_error(e):
+                raise
+            logger.warning(
+                f'Stage "{stage}" ran out of GPU memory on {device}; retrying on CPU. '
+                f'Set device_{stage} to "cpu" to avoid the failed GPU attempt.'
+            )
+            self._cleanup_gpu_memory(aggressive=True)
+            return await run('cpu')
 
     async def translate(self, image: Image.Image, config: Config, image_name: str = None, skip_context_save: bool = False, save_info: dict = None) -> Context:
         """
@@ -1798,14 +1874,17 @@ class MangaTranslator:
         current_time = time.time()
         self._model_usage_timestamps[("colorizer", config.colorizer.colorizer)] = current_time
 
-        result = await dispatch_colorization(
-            config.colorizer.colorizer,
-            colorization_size=config.colorizer.colorization_size,
-            denoise_sigma=config.colorizer.denoise_sigma,
-            device=self.device,
-            image=ctx.input,
-            config=config,
-            colorizer_history_images=self._get_colorizer_history_images(config),
+        result = await self._run_stage_on_device(
+            'colorization',
+            lambda device: dispatch_colorization(
+                config.colorizer.colorizer,
+                colorization_size=config.colorizer.colorization_size,
+                denoise_sigma=config.colorizer.denoise_sigma,
+                device=device,
+                image=ctx.input,
+                config=config,
+                colorizer_history_images=self._get_colorizer_history_images(config),
+            ),
         )
         self._append_colorizer_history_image(config, result)
         return result
@@ -1851,12 +1930,15 @@ class MangaTranslator:
         else:
             upscale_ratio_num = config.upscale.upscale_ratio
         
-        result = (await dispatch_upscaling(
-            config.upscale.upscaler, 
-            [ctx.img_colorized], 
-            upscale_ratio_num, 
-            self.device,
-            **upscaler_kwargs
+        result = (await self._run_stage_on_device(
+            'upscaling',
+            lambda device: dispatch_upscaling(
+                config.upscale.upscaler,
+                [ctx.img_colorized],
+                upscale_ratio_num,
+                device,
+                **upscaler_kwargs
+            ),
         ))[0]
         
         if self.models_ttl > 0:
@@ -1912,24 +1994,27 @@ class MangaTranslator:
             use_yolo_obb = config.detector.use_yolo_obb
             if self.load_text:
                 use_yolo_obb = False
-            result = await dispatch_detection(
-                config.detector.detector,
-                ctx.img_rgb,
-                config.detector.detection_size,
-                config.detector.text_threshold,
-                config.detector.box_threshold,
-                config.detector.unclip_ratio,
-                self.device,
-                self.verbose,
-                use_yolo_obb,
-                config.detector.yolo_obb_conf,
-                config.detector.yolo_obb_overlap_threshold,
-                config.detector.min_box_area_ratio,
-                self._result_path,
-                config.detector.det_rearrange_min_effective_short_side,
-                use_sfx_filter=bool(getattr(config.detector, 'use_sfx_filter', False)),
-                sfx_filter_include_bubble_text=bool(getattr(config.detector, 'sfx_filter_include_bubble_text', False)),
-                bubble_mask=ctx.bubble_mask,
+            result = await self._run_stage_on_device(
+                'detection',
+                lambda device: dispatch_detection(
+                    config.detector.detector,
+                    ctx.img_rgb,
+                    config.detector.detection_size,
+                    config.detector.text_threshold,
+                    config.detector.box_threshold,
+                    config.detector.unclip_ratio,
+                    device,
+                    self.verbose,
+                    use_yolo_obb,
+                    config.detector.yolo_obb_conf,
+                    config.detector.yolo_obb_overlap_threshold,
+                    config.detector.min_box_area_ratio,
+                    self._result_path,
+                    config.detector.det_rearrange_min_effective_short_side,
+                    use_sfx_filter=bool(getattr(config.detector, 'use_sfx_filter', False)),
+                    sfx_filter_include_bubble_text=bool(getattr(config.detector, 'sfx_filter_include_bubble_text', False)),
+                    bubble_mask=ctx.bubble_mask,
+                ),
             )
         
             # 处理bbox调试图（如果检测器返回了）
@@ -2213,7 +2298,8 @@ class MangaTranslator:
             MangaTranslator._last_gc_collect_ts = now
 
         # 仅在 CUDA 设备下执行显存清理；MPS 目前无等价 empty_cache。
-        device_str = str(getattr(self, 'device', ''))
+        # 混合模式下只要有任一阶段跑在 CUDA 上就需要清理。
+        device_str = self._active_cuda_device() or ''
         if device_str.startswith('cuda'):
             try:
                 import torch
@@ -2228,7 +2314,7 @@ class MangaTranslator:
 
     def _get_cuda_memory_snapshot(self) -> Optional[dict]:
         """获取当前 CUDA 显存快照。非 CUDA 设备返回 None。"""
-        device_str = str(getattr(self, 'device', ''))
+        device_str = self._active_cuda_device() or ''
         if not device_str.startswith('cuda'):
             return None
         try:
@@ -2624,15 +2710,18 @@ class MangaTranslator:
             primary_ocr_engine = config.ocr.ocr
             ocr_name = primary_ocr_engine.value if hasattr(primary_ocr_engine, 'value') else primary_ocr_engine
             logger.info(f"Running primary OCR with: {ocr_name}")
-            textlines = await dispatch_ocr(
-                primary_ocr_engine,
-                ctx.img_rgb,
-                ctx.textlines,
-                config.ocr,
-                self.device,
-                self.verbose,
-                runtime_config=config,
-                bubble_mask=ctx.bubble_mask,
+            textlines = await self._run_stage_on_device(
+                'ocr',
+                lambda device: dispatch_ocr(
+                    primary_ocr_engine,
+                    ctx.img_rgb,
+                    ctx.textlines,
+                    config.ocr,
+                    device,
+                    self.verbose,
+                    runtime_config=config,
+                    bubble_mask=ctx.bubble_mask,
+                ),
             )
 
             # --- BEGIN: HYBRID OCR LOGIC ---
@@ -2655,15 +2744,18 @@ class MangaTranslator:
                     
                     secondary_ocr_name = secondary_ocr_engine.value if hasattr(secondary_ocr_engine, 'value') else secondary_ocr_engine
                     logger.info(f"Running secondary OCR with: {secondary_ocr_name}")
-                    secondary_results = await dispatch_ocr(
-                        secondary_ocr_engine,
-                        ctx.img_rgb,
-                        failed_textlines,
-                        secondary_config,
-                        self.device,
-                        self.verbose,
-                        runtime_config=config,
-                        bubble_mask=ctx.bubble_mask,
+                    secondary_results = await self._run_stage_on_device(
+                        'ocr',
+                        lambda device: dispatch_ocr(
+                            secondary_ocr_engine,
+                            ctx.img_rgb,
+                            failed_textlines,
+                            secondary_config,
+                            device,
+                            self.verbose,
+                            runtime_config=config,
+                            bubble_mask=ctx.bubble_mask,
+                        ),
                     )
                     
                     # Merge the results back into the original list
@@ -3277,9 +3369,12 @@ class MangaTranslator:
 
                     async def _inpaint_block(crop, msk):
                         self._check_cancelled()
-                        return await dispatch_inpainting(
-                            config.inpainter.inpainter, crop, msk, config.inpainter,
-                            config.inpainter.inpainting_size, self.device, self.verbose)
+                        return await self._run_stage_on_device(
+                            'inpainting',
+                            lambda device: dispatch_inpainting(
+                                config.inpainter.inpainter, crop, msk, config.inpainter,
+                                config.inpainter.inpainting_size, device, self.verbose),
+                        )
 
                     result, block_count = await inpaint_regions_per_block(
                         filled_img, remaining_mask, _inpaint_block)
@@ -3299,14 +3394,17 @@ class MangaTranslator:
         current_time = time.time()
         self._model_usage_timestamps[("inpainting", config.inpainter.inpainter)] = current_time
         try:
-            result = await dispatch_inpainting(
-                config.inpainter.inpainter,
-                img_for_inpaint,
-                mask_for_inpaint,
-                config.inpainter,
-                config.inpainter.inpainting_size,
-                self.device,
-                self.verbose,
+            result = await self._run_stage_on_device(
+                'inpainting',
+                lambda device: dispatch_inpainting(
+                    config.inpainter.inpainter,
+                    img_for_inpaint,
+                    mask_for_inpaint,
+                    config.inpainter,
+                    config.inpainter.inpainting_size,
+                    device,
+                    self.verbose,
+                ),
             )
             return result
         finally:
@@ -4521,9 +4619,9 @@ class MangaTranslator:
             
             await prepare_detection(config.detector.detector)
             
-            await prepare_ocr(config.ocr.ocr, self.device)
+            await prepare_ocr(config.ocr.ocr, self.device_for('ocr'))
             
-            await prepare_inpainting(config.inpainter.inpainter, self.device)
+            await prepare_inpainting(config.inpainter.inpainter, self.device_for('inpainting'))
             
             await prepare_translation(config.translator.translator_gen)
             
@@ -5265,7 +5363,7 @@ class MangaTranslator:
                 config,
                 False,  # use_mtpe removed
                 ctx,
-                'cpu' if self._gpu_limited_memory else self.device
+                'cpu' if self._gpu_limited_memory else self.device_for('translation')
             )
     
     def _should_filter_identical_translation(self, config: Config, region) -> bool:
@@ -5473,7 +5571,7 @@ class MangaTranslator:
         if self.verbose and ctx.mask is not None:
             try:
                 inpaint_input_img = await dispatch_inpainting(Inpainter.none, ctx.img_rgb, ctx.mask, config.inpainter,config.inpainter.inpainting_size,
-                                                              self.device, self.verbose)
+                                                              self.device_for('inpainting'), self.verbose)
                 
                 # 保存inpaint_input.png
                 inpaint_input_path = self._result_path('inpaint_input.png')
@@ -5751,7 +5849,7 @@ class MangaTranslator:
                             config.translator,
                             False,  # use_mtpe removed
                             ctx,
-                            'cpu' if self._gpu_limited_memory else self.device
+                            'cpu' if self._gpu_limited_memory else self.device_for('translation')
                         )
                         if retranslated:
                             region.translation = retranslated[0]

@@ -151,6 +151,14 @@ class Upscaler(str, Enum):
     realcugan = "realcugan"
     mangajanai = "mangajanai"
 
+class DeviceChoice(str, Enum):
+    auto = "auto"
+    gpu = "gpu"
+    cpu = "cpu"
+
+# 可以单独指定运行设备的流水线阶段。
+DEVICE_STAGES = ("detection", "ocr", "inpainting", "upscaling", "colorization", "translation")
+
 class RenderConfig(BaseModel):
     renderer: Renderer = Renderer.default
     """Rendering engine selection."""
@@ -399,6 +407,20 @@ class CliConfig(BaseModel):
     """Use GPU for processing"""
     disable_onnx_gpu: bool = False
     """Disable ONNX Runtime GPU acceleration and force CPUExecutionProvider."""
+    device_detection: DeviceChoice = DeviceChoice.auto
+    """Device for text detection. 'auto' follows use_gpu."""
+    device_ocr: DeviceChoice = DeviceChoice.auto
+    """Device for OCR. 'auto' follows use_gpu."""
+    device_inpainting: DeviceChoice = DeviceChoice.auto
+    """Device for inpainting. 'auto' follows use_gpu."""
+    device_upscaling: DeviceChoice = DeviceChoice.auto
+    """Device for upscaling. 'auto' follows use_gpu."""
+    device_colorization: DeviceChoice = DeviceChoice.auto
+    """Device for colorization. 'auto' follows use_gpu."""
+    device_translation: DeviceChoice = DeviceChoice.auto
+    """Device for local/offline translation models. 'auto' follows use_gpu."""
+    oom_fallback_to_cpu: bool = True
+    """Retry a stage on CPU when it runs out of GPU memory instead of failing."""
     context_size: int = 3
     """Context size for translation"""
     batch_size: int = 1
