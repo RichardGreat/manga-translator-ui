@@ -29,15 +29,18 @@ PyTorch cannot use the RX 580, but ONNX Runtime can, via DirectML. The ONNX mode
 (`lama_mpe`/`lama` inpainting, PaddleOCR, booru tagger) then run on the GPU while
 PyTorch stages (detection, 48px OCR, etc.) stay on the CPU.
 
-1. Install with the `directml` dependency group (CPU PyTorch + `onnxruntime-directml`):
-   `python packaging/launch.py --requirements directml`
-   (or `uv sync --group directml`). `onnxruntime-directml` and `onnxruntime` share a
-   package name, so do not install both.
-2. Keep `cli.onnx_directml` = `true` (already set in `config/config-example.json`), or set the
-   environment variable `MT_ONNX_DIRECTML=1`.
+1. Double-click **`Win10-RX580-Install.bat`** (Windows 10 version 1903 / build 18362 or newer).
+   It installs the Visual C++ runtime if missing, installs `uv`, creates `.venv` with
+   Python 3.12 and runs `uv sync --locked --no-default-groups --group directml`
+   (CPU PyTorch + `onnxruntime-directml`), then checks that `DmlExecutionProvider` is
+   visible. Run it again at any time to repair or update. `onnxruntime-directml` and
+   `onnxruntime` share a package name, so do not install both.
+2. Start the app with **`Win10-RX580-Start.bat`**. It sets `MT_ONNX_DIRECTML=1`; the same is
+   already the default via `cli.onnx_directml` = `true` in `config/config-example.json`.
 3. If `onnxruntime-directml` is not installed or the GPU session fails (e.g. out of the
    4 GB VRAM), a warning is logged and that model falls back to the CPU.
-4. `cli.disable_onnx_gpu` = `true` turns DirectML off again.
+4. Keep the Radeon driver up to date; DirectML needs a DirectX 12 capable driver.
+5. `cli.disable_onnx_gpu` = `true` turns DirectML off again.
 
 The per-stage `device_*` options stay on `auto`, so they follow `use_gpu` (CPU here).
 If you later get a working GPU backend, set `use_gpu` to `true` and pick `gpu` for the
