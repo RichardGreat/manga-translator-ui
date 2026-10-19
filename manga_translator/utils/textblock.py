@@ -45,7 +45,8 @@ LANGUAGE_ORIENTATION_PRESETS = {
     'VIN': 'h',
     'ARA': 'h',
     'PER': 'h',
-    'FIL': 'h'
+    'FIL': 'h',
+    'UZB': 'h'
 }
 
 

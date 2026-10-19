@@ -62,7 +62,8 @@ VALID_LANGUAGES = {
     'HRV': 'Croatian',
     'THA': 'Thai',
     'IND': 'Indonesian',
-    'FIL': 'Filipino (Tagalog)'
+    'FIL': 'Filipino (Tagalog)',
+    'UZB': 'Uzbek (Latin script)'
 }
 
 KEEP_LANGUAGES = {
@@ -101,7 +102,8 @@ ISO_639_1_TO_VALID_LANGUAGES = {
     'hr': 'HRV',
     'th': 'THA',
     'id': 'IND',
-    'tl': 'FIL'
+    'tl': 'FIL',
+    'uz': 'UZB'
 }
 
 # Keep Arabic-derived scripts in logical Unicode order. Qt handles shaping and

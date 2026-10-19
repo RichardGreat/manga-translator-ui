@@ -97,7 +97,8 @@ class TranslationService:
             'HRV': self._t('lang_HRV'),
             'THA': self._t('lang_THA'),
             'IND': self._t('lang_IND'),
-            'FIL': self._t('lang_FIL')
+            'FIL': self._t('lang_FIL'),
+            'UZB': self._t('lang_UZB')
         }
 
     def get_keep_languages(self) -> Dict[str, str]:
