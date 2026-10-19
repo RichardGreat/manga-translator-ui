@@ -1,0 +1,5 @@
+{
+  "app": {
+    "unload_models_after_translation": true
+  }
+}

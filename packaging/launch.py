@@ -2914,6 +2914,30 @@ def run_deps_with_retry(task, action_label_zh, action_label_en):
             return False
 
 
+def apply_apple_silicon_profile():
+    """First-install only: tune config/config.json for this Mac's unified memory.
+
+    Never replaces an existing config.json, and never fails the install.
+    """
+    try:
+        import apple_profile
+
+        result = apple_profile.apply_for_this_machine()
+    except Exception as exc:
+        print(L(f"[警告] 未能应用 Apple Silicon 配置预设: {exc}",
+                f"[WARNING] Could not apply the Apple Silicon config profile: {exc}"))
+        return
+    if result is None:
+        return
+    name, status = result
+    if status == apple_profile.APPLIED:
+        print(L(f"✓ 已按本机内存应用 Apple Silicon 配置预设: {name}",
+                f"✓ Applied Apple Silicon config profile for this Mac's memory: {name}"))
+    else:
+        print(L(f"[信息] 已存在 config/config.json，保持不变（可运行 packaging/apple_profile.py --apply --force 应用 {name}）",
+                f"[INFO] config/config.json already exists and was kept (run packaging/apple_profile.py --apply --force to use {name})"))
+
+
 def install_dependencies(args):
     """Install the selected runtime dependency set after code is current."""
     print()
@@ -2930,6 +2954,7 @@ def install_dependencies(args):
     if not run_deps_with_retry(do_install, "安装", "Install"):
         return False
 
+    apply_apple_silicon_profile()
     cleanup_caches()
     print()
     print("=" * 40)
