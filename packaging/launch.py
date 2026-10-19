@@ -153,10 +153,10 @@ def get_pytorch_index_candidates(primary_index_url):
 
 # ============================================================
 # pyproject.toml dependency groups 读取
-# 依赖声明在 pyproject.toml 中：公共依赖 + cpu/cuda13.0/cuda12.6/rocm7.2.1/metal 五个后端组
+# 依赖声明在 pyproject.toml 中：公共依赖 + cpu/cuda13.0/cuda12.6/rocm7.2.1/directml/metal 六个后端组
 # ============================================================
 PYPROJECT_FILE = PATH_ROOT / 'pyproject.toml'
-DEP_VARIANTS = ('cpu', 'cuda13.0', 'cuda12.6', 'rocm7.2.1', 'metal')
+DEP_VARIANTS = ('cpu', 'cuda13.0', 'cuda12.6', 'rocm7.2.1', 'directml', 'metal')
 
 _pyproject_cache = None
 

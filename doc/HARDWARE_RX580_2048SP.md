@@ -15,13 +15,29 @@ unsupported AMD GPU. The 6-core i5-10400 and 16 GB RAM do the work.
 | Setting | Default | This profile | Reason |
 |---|---|---|---|
 | `cli.use_gpu` | `true` | `false` | no supported GPU backend |
-| `cli.disable_onnx_gpu` | `false` | `true` | ONNX Runtime runs on CPU only |
+| `cli.onnx_directml` | `false` | `true` | run ONNX models on the RX 580 through DirectML |
 | `cli.batch_size` | 3 | 1 | keep peak RAM low |
 | `detector.detection_size` | 2048 | 1536 | faster CPU detection |
 | `inpainter.inpainter` | `lama_large` | `lama_mpe` | much lighter on CPU |
 | `inpainter.inpainting_size` | 2048 | 1024 | faster, less RAM |
 | `upscale.tile_size` | 400 | 200 | smaller tiles, lower RAM |
 | `colorizer.colorization_size` | 2048 | 1024 | faster, less RAM |
+
+## GPU acceleration through DirectML (Windows)
+
+PyTorch cannot use the RX 580, but ONNX Runtime can, via DirectML. The ONNX models
+(`lama_mpe`/`lama` inpainting, PaddleOCR, booru tagger) then run on the GPU while
+PyTorch stages (detection, 48px OCR, etc.) stay on the CPU.
+
+1. Install with the `directml` dependency group (CPU PyTorch + `onnxruntime-directml`):
+   `python packaging/launch.py --requirements directml`
+   (or `uv sync --group directml`). `onnxruntime-directml` and `onnxruntime` share a
+   package name, so do not install both.
+2. Keep `cli.onnx_directml` = `true` (already set in `config/config-example.json`), or set the
+   environment variable `MT_ONNX_DIRECTML=1`.
+3. If `onnxruntime-directml` is not installed or the GPU session fails (e.g. out of the
+   4 GB VRAM), a warning is logged and that model falls back to the CPU.
+4. `cli.disable_onnx_gpu` = `true` turns DirectML off again.
 
 The per-stage `device_*` options stay on `auto`, so they follow `use_gpu` (CPU here).
 If you later get a working GPU backend, set `use_gpu` to `true` and pick `gpu` for the

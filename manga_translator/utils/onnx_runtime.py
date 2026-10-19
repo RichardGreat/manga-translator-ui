@@ -7,6 +7,8 @@ from typing import Any, Mapping, Optional, Sequence, Union
 ModelPath = Union[str, Path]
 _TRUE_VALUES = {"1", "true", "yes", "on"}
 _DISABLE_ONNX_GPU = False
+_ENABLE_ONNX_DIRECTML = False
+_DML_PROVIDER = "DmlExecutionProvider"
 
 
 def _is_truthy(value: str) -> bool:
@@ -22,6 +24,18 @@ def set_onnx_gpu_disabled(disabled: bool) -> None:
 def is_onnx_gpu_disabled() -> bool:
     """Return True when ONNX GPU acceleration is disabled by config or env."""
     return _DISABLE_ONNX_GPU or _is_truthy(os.getenv("MT_DISABLE_ONNX_GPU", ""))
+
+
+def set_onnx_directml_enabled(enabled: bool) -> None:
+    """Set process-wide switch that lets ONNX sessions use DirectML (AMD/Intel GPUs on Windows)."""
+    global _ENABLE_ONNX_DIRECTML
+    _ENABLE_ONNX_DIRECTML = bool(enabled)
+
+
+def is_onnx_directml_enabled() -> bool:
+    """Return True when DirectML is requested by config or env and GPU use is not disabled."""
+    requested = _ENABLE_ONNX_DIRECTML or _is_truthy(os.getenv("MT_ONNX_DIRECTML", ""))
+    return requested and not is_onnx_gpu_disabled()
 
 
 def import_onnxruntime(import_error_message: str = ""):
@@ -61,12 +75,20 @@ def create_session_options(
     return sess_options
 
 
-def _provider_has_cuda(provider: Any) -> bool:
+def _provider_name(provider: Any) -> Optional[str]:
     if isinstance(provider, str):
-        return provider == "CUDAExecutionProvider"
+        return provider
     if isinstance(provider, (tuple, list)) and provider:
-        return provider[0] == "CUDAExecutionProvider"
-    return False
+        return provider[0]
+    return None
+
+
+def _provider_has_cuda(provider: Any) -> bool:
+    return _provider_name(provider) == "CUDAExecutionProvider"
+
+
+def _provider_has_gpu(provider: Any) -> bool:
+    return _provider_name(provider) in ("CUDAExecutionProvider", _DML_PROVIDER)
 
 
 def build_execution_providers(
@@ -82,6 +104,10 @@ def build_execution_providers(
     """
     Build providers in ONNX Runtime official format:
     [("CUDAExecutionProvider", {...}), "CPUExecutionProvider"].
+
+    When CUDA is not requested and DirectML is enabled (``set_onnx_directml_enabled``
+    or ``MT_ONNX_DIRECTML=1``), DmlExecutionProvider is placed before the CPU provider
+    if the installed onnxruntime build exposes it.
     """
     normalized = (device or "cpu").lower()
     wants_cuda = normalized.startswith("cuda")
@@ -120,6 +146,22 @@ def build_execution_providers(
         elif logger is not None:
             logger.warning(f"CUDAExecutionProvider not available, fallback to CPU: {available_providers}")
 
+    elif is_onnx_directml_enabled():
+        available_providers = []
+        try:
+            available_providers = ort.get_available_providers()
+        except Exception as exc:
+            if logger is not None:
+                logger.warning(f"Failed to query ONNX Runtime providers: {exc}")
+
+        if _DML_PROVIDER in available_providers:
+            providers.append(_DML_PROVIDER)
+        elif logger is not None:
+            logger.warning(
+                f"{_DML_PROVIDER} not available, fallback to CPU "
+                f"(install onnxruntime-directml): {available_providers}"
+            )
+
     if include_cpu or not providers:
         providers.append("CPUExecutionProvider")
 
@@ -140,7 +182,7 @@ def create_inference_session(
 ) -> tuple[Any, str]:
     """
     Create InferenceSession with standard provider order and optional CUDA->CPU fallback.
-    Returns (session, active_device), where active_device is 'cuda' or 'cpu'.
+    Returns (session, active_device), where active_device is 'cuda', 'directml' or 'cpu'.
     """
     providers = build_execution_providers(
         ort,
@@ -153,14 +195,19 @@ def create_inference_session(
     )
 
     model_path_str = str(model_path)
-    tried_cuda = any(_provider_has_cuda(provider) for provider in providers)
+    tried_gpu = any(_provider_has_gpu(provider) for provider in providers)
+
+    if any(_provider_name(provider) == _DML_PROVIDER for provider in providers):
+        # DirectML requires these two settings (ONNX Runtime DirectML EP docs).
+        sess_options.enable_mem_pattern = False
+        sess_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
 
     try:
         session = ort.InferenceSession(model_path_str, sess_options=sess_options, providers=providers)
     except Exception as exc:
-        if fallback_to_cpu and tried_cuda:
+        if fallback_to_cpu and tried_gpu:
             if logger is not None:
-                logger.warning(f"CUDA session creation failed, fallback to CPU: {exc}")
+                logger.warning(f"GPU session creation failed, fallback to CPU: {exc}")
             session = ort.InferenceSession(
                 model_path_str,
                 sess_options=sess_options,
@@ -169,5 +216,11 @@ def create_inference_session(
         else:
             raise
 
-    active_device = "cuda" if "CUDAExecutionProvider" in session.get_providers() else "cpu"
+    active_providers = session.get_providers()
+    if "CUDAExecutionProvider" in active_providers:
+        active_device = "cuda"
+    elif _DML_PROVIDER in active_providers:
+        active_device = "directml"
+    else:
+        active_device = "cpu"
     return session, active_device

@@ -38,7 +38,7 @@ from .utils import (
     visualize_textblocks,
 )
 from .utils.batch_skip import BatchInputPlan, input_path, plan_batch_inputs, slice_batch_indices
-from .utils.onnx_runtime import set_onnx_gpu_disabled
+from .utils.onnx_runtime import set_onnx_directml_enabled, set_onnx_gpu_disabled
 from .utils.text_filter import match_filter
 
 matplotlib.use('Agg')  # 使用非GUI后端
@@ -422,6 +422,10 @@ class MangaTranslator:
         set_onnx_gpu_disabled(self.disable_onnx_gpu)
         if self.disable_onnx_gpu:
             logger.info("ONNX GPU acceleration disabled; ONNX Runtime will use CPUExecutionProvider.")
+        onnx_directml = params.get('onnx_directml', False)
+        if isinstance(onnx_directml, str):
+            onnx_directml = onnx_directml.strip().lower() in ('1', 'true', 'yes', 'on')
+        set_onnx_directml_enabled(bool(onnx_directml))
         
         # batch_concurrent 四并发流水线处理（可选功能）
         # 开启后：检测、OCR、修复、翻译四并发，提升处理速度

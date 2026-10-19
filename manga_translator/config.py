@@ -407,6 +407,8 @@ class CliConfig(BaseModel):
     """Use GPU for processing"""
     disable_onnx_gpu: bool = False
     """Disable ONNX Runtime GPU acceleration and force CPUExecutionProvider."""
+    onnx_directml: bool = False
+    """Run ONNX models on DirectML (AMD/Intel GPUs on Windows; needs onnxruntime-directml)."""
     device_detection: DeviceChoice = DeviceChoice.auto
     """Device for text detection. 'auto' follows use_gpu."""
     device_ocr: DeviceChoice = DeviceChoice.auto

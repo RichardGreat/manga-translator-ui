@@ -141,6 +141,7 @@ class CliSettings(BaseModel):
     ignore_errors: bool = False
     use_gpu: bool = True
     disable_onnx_gpu: bool = False  # 禁用 ONNX Runtime GPU 加速（强制 ONNX 走 CPU）
+    onnx_directml: bool = False  # ONNX 使用 DirectML（Windows 上的 AMD/Intel 显卡，需 onnxruntime-directml）
     # 逐阶段设备选择：auto 跟随 use_gpu，可把部分阶段放到 CPU 以节省显存
     device_detection: str = "auto"
     device_ocr: str = "auto"
