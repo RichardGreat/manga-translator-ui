@@ -80,7 +80,7 @@
   },
   "inpainter": {
     "inpainter": "lama_large",
-    "inpainting_size": 2048,
+    "inpainting_size": 1536,
     "inpainting_precision": "fp32",
     "force_use_torch_inpainting": false,
     "solid_fill_pure_bubbles": false,
@@ -124,11 +124,11 @@
     "upscaler": "mangajanai",
     "upscale_ratio": null,
     "realcugan_model": null,
-    "tile_size": 400,
+    "tile_size": 256,
     "revert_upscaling": false
   },
   "colorizer": {
-    "colorization_size": 2048,
+    "colorization_size": 1536,
     "denoise_sigma": 30,
     "colorizer": "none",
     "ai_colorizer_history_pages": 0
@@ -156,7 +156,7 @@
     "translate_json_only": false,
     "template": false,
     "save_quality": 100,
-    "batch_size": 3,
+    "batch_size": 2,
     "batch_concurrent": false,
     "generate_and_export": false,
     "colorize_only": false,

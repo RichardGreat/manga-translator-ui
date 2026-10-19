@@ -553,6 +553,12 @@ class MangaTranslator:
                 return candidate
         return None
 
+    def _uses_mps(self) -> bool:
+        """混合模式下任一阶段使用 Apple Metal (MPS) 即返回 True。"""
+        stage_devices = getattr(self, '_stage_devices', None) or {}
+        candidates = [str(getattr(self, 'device', '') or '')] + [str(d) for d in stage_devices.values()]
+        return 'mps' in candidates
+
     @staticmethod
     def _is_oom_error(exc: BaseException) -> bool:
         """判断异常是否为 GPU 显存不足。"""
@@ -2297,8 +2303,8 @@ class MangaTranslator:
             gc.collect()
             MangaTranslator._last_gc_collect_ts = now
 
-        # 仅在 CUDA 设备下执行显存清理；MPS 目前无等价 empty_cache。
-        # 混合模式下只要有任一阶段跑在 CUDA 上就需要清理。
+        # CUDA 与 MPS 都会缓存已释放的显存；混合模式下只要有任一阶段跑在 GPU 上就需要清理。
+        # MPS 使用统一内存，缓存不释放会挤占系统内存（16 GB 机型尤其明显）。
         device_str = self._active_cuda_device() or ''
         if device_str.startswith('cuda'):
             try:
@@ -2309,6 +2315,13 @@ class MangaTranslator:
                         if hasattr(torch.cuda, 'ipc_collect'):
                             torch.cuda.ipc_collect()
                     torch.cuda.synchronize()
+            except Exception:
+                pass
+        elif aggressive and self._uses_mps():
+            try:
+                import torch
+                if torch.backends.mps.is_available():
+                    torch.mps.empty_cache()
             except Exception:
                 pass
 
