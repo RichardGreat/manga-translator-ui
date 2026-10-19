@@ -1,0 +1,29 @@
+{
+  "cli": {
+    "use_gpu": true,
+    "disable_onnx_gpu": false,
+    "device_detection": "auto",
+    "device_ocr": "auto",
+    "device_inpainting": "auto",
+    "device_upscaling": "auto",
+    "device_colorization": "auto",
+    "device_translation": "auto",
+    "oom_fallback_to_cpu": true,
+    "batch_size": 3
+  },
+  "detector": {
+    "detection_size": 2048
+  },
+  "inpainter": {
+    "inpainter": "lama_large",
+    "inpainting_size": 2048,
+    "inpainting_precision": "fp32",
+    "force_use_torch_inpainting": false
+  },
+  "upscale": {
+    "tile_size": 400
+  },
+  "colorizer": {
+    "colorization_size": 2048
+  }
+}
