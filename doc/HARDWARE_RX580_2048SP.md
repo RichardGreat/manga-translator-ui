@@ -69,6 +69,15 @@ Win10-RX580-Install.bat
 | `upscale.tile_size` | 400 | 200 | smaller tiles, lower RAM |
 | `colorizer.colorization_size` | 2048 | 1024 | faster, less RAM |
 
+## Sharing the settings
+
+`config/rx580-2048sp-preset.json` holds only the settings of this profile (the table above,
+without `app.auto_check_updates`). Send that file and load it with **Settings → Import Config**:
+it changes only those settings and keeps the other person's translator, language and API keys.
+DirectML (`cli.onnx_directml`) needs this branch's code and `Win10-RX580-Install.bat`; on a stock
+install that key is ignored and the rest still applies. The full defaults are in
+`config/config-example.json`; your own saved settings are in `config/config.json` (not in git).
+
 ## Turning DirectML off
 
 - For one run: `set MT_ONNX_DIRECTML=0` in a console, then run `Win10-RX580-Start.bat`
