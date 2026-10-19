@@ -65,7 +65,7 @@
   },
   "detector": {
     "detector": "default",
-    "detection_size": 2048,
+    "detection_size": 1536,
     "det_rearrange_min_effective_short_side": 341,
     "text_threshold": 0.5,
     "box_threshold": 0.5,
@@ -79,8 +79,8 @@
     "min_box_area_ratio": 0
   },
   "inpainter": {
-    "inpainter": "lama_large",
-    "inpainting_size": 2048,
+    "inpainter": "lama_mpe",
+    "inpainting_size": 1024,
     "inpainting_precision": "fp32",
     "force_use_torch_inpainting": false,
     "solid_fill_pure_bubbles": false,
@@ -124,11 +124,11 @@
     "upscaler": "mangajanai",
     "upscale_ratio": null,
     "realcugan_model": null,
-    "tile_size": 400,
+    "tile_size": 200,
     "revert_upscaling": false
   },
   "colorizer": {
-    "colorization_size": 2048,
+    "colorization_size": 1024,
     "denoise_sigma": 30,
     "colorizer": "none",
     "ai_colorizer_history_pages": 0
@@ -137,8 +137,8 @@
     "verbose": false,
     "attempts": 3,
     "ignore_errors": false,
-    "use_gpu": true,
-    "disable_onnx_gpu": false,
+    "use_gpu": false,
+    "disable_onnx_gpu": true,
     "device_detection": "auto",
     "device_ocr": "auto",
     "device_inpainting": "auto",
@@ -156,7 +156,7 @@
     "translate_json_only": false,
     "template": false,
     "save_quality": 100,
-    "batch_size": 3,
+    "batch_size": 1,
     "batch_concurrent": false,
     "generate_and_export": false,
     "colorize_only": false,
