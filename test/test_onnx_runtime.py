@@ -113,3 +113,97 @@ def test_directml_session_sets_required_options_and_reports_device():
     assert device == "directml"
     assert opts.enable_mem_pattern is False
     assert opts.execution_mode == "seq"
+
+
+def test_directml_env_override_wins_over_config():
+    import os
+
+    from manga_translator.utils import onnx_runtime
+
+    previous = os.environ.get("MT_ONNX_DIRECTML")
+    onnx_runtime.set_onnx_directml_enabled(True)
+    try:
+        os.environ["MT_ONNX_DIRECTML"] = "0"
+        assert build_execution_providers(_DmlOrt(), device="cpu") == ["CPUExecutionProvider"]
+
+        onnx_runtime.set_onnx_directml_enabled(False)
+        os.environ["MT_ONNX_DIRECTML"] = "1"
+        assert build_execution_providers(_DmlOrt(), device="cpu")[0] == "DmlExecutionProvider"
+    finally:
+        onnx_runtime.set_onnx_directml_enabled(False)
+        if previous is None:
+            os.environ.pop("MT_ONNX_DIRECTML", None)
+        else:
+            os.environ["MT_ONNX_DIRECTML"] = previous
+
+
+def test_directml_used_when_cuda_requested_but_unavailable():
+    from manga_translator.utils import onnx_runtime
+
+    onnx_runtime.set_onnx_directml_enabled(True)
+    try:
+        assert build_execution_providers(_DmlOrt(), device="cuda") == [
+            "DmlExecutionProvider",
+            "CPUExecutionProvider",
+        ]
+    finally:
+        onnx_runtime.set_onnx_directml_enabled(False)
+
+
+def _failing_dml_ort(error_name):
+    error_type = type(error_name, (Exception,), {})
+
+    class Session:
+        def __init__(self, path, sess_options, providers):
+            self.providers = providers
+
+        def get_providers(self):
+            return self.providers
+
+        def run(self, output_names, feeds):
+            if "DmlExecutionProvider" in self.providers:
+                raise error_type("887A0005 device removed")
+            return ["cpu-result"]
+
+    class Opts:
+        enable_mem_pattern = True
+        execution_mode = None
+
+    class Ort(_DmlOrt):
+        InferenceSession = Session
+
+    return Ort, Opts(), error_type
+
+
+def test_directml_run_failure_falls_back_to_cpu():
+    from manga_translator.utils import onnx_runtime
+
+    ort, opts, _ = _failing_dml_ort("RuntimeException")
+    onnx_runtime.set_onnx_directml_enabled(True)
+    try:
+        session, device = onnx_runtime.create_inference_session(ort, "m.onnx", sess_options=opts)
+    finally:
+        onnx_runtime.set_onnx_directml_enabled(False)
+
+    assert device == "directml"
+    assert session.run(None, {}) == ["cpu-result"]
+    assert session.get_providers() == ["CPUExecutionProvider"]
+
+
+def test_directml_invalid_argument_is_not_retried_on_cpu():
+    from manga_translator.utils import onnx_runtime
+
+    ort, opts, error_type = _failing_dml_ort("InvalidArgument")
+    onnx_runtime.set_onnx_directml_enabled(True)
+    try:
+        session, _ = onnx_runtime.create_inference_session(ort, "m.onnx", sess_options=opts)
+    finally:
+        onnx_runtime.set_onnx_directml_enabled(False)
+
+    try:
+        session.run(None, {})
+    except error_type:
+        pass
+    else:
+        raise AssertionError("InvalidArgument should propagate")
+    assert "DmlExecutionProvider" in session.get_providers()

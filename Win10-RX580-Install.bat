@@ -6,19 +6,25 @@ REM  Manga Translator UI - installer for
 REM    Windows 10 | Intel i5-10400 | 16 GB RAM | AMD RX 580 2048SP (4 GB)
 REM
 REM  What it does:
-REM    1. checks Windows 10 version (DirectML needs 1903 / build 18362+)
+REM    1. checks Windows (64-bit, Windows 10 1903 / build 18362+ for DirectML)
+REM       and warns about project paths that often break Python packages
 REM    2. installs the Visual C++ runtime if it is missing (needed by PyTorch)
 REM    3. installs uv (Python package manager) if it is missing
 REM    4. creates .venv with Python 3.12 and installs the "directml" group:
 REM       CPU PyTorch + onnxruntime-directml (ONNX models run on the RX 580)
-REM    5. checks that DirectML is visible to ONNX Runtime
+REM    5. checks the installation and offers to start the app
 REM
-REM  Run it again at any time to repair or update the environment.
-REM  Start the app afterwards with Win10-RX580-Start.bat
+REM  Run it again at any time to repair the environment or after "git pull".
+REM  Do NOT use Win-Install-or-Update.bat or the in-app updater on this branch:
+REM  they switch the code to the "main" branch.
+REM
+REM  Options:  --no-start   do not offer to start the app at the end
 REM ============================================================
 
 set "PYTHONUTF8=1"
+set "UV_LINK_MODE=copy"
 cd /d "%~dp0"
+set "MT_DIR=%CD%"
 title Manga Translator UI - install (RX 580 / Windows 10)
 
 echo ============================================================
@@ -26,13 +32,20 @@ echo  Manga Translator UI - install for RX 580 (DirectML)
 echo ============================================================
 echo.
 
-REM ---------- 1) Windows version ----------
-echo [1/5] Checking Windows version...
+REM ---------- 1) Windows and project path ----------
+echo [1/5] Checking Windows...
+set "ARCH=%PROCESSOR_ARCHITECTURE%"
+if defined PROCESSOR_ARCHITEW6432 set "ARCH=%PROCESSOR_ARCHITEW6432%"
+if /I not "%ARCH%"=="AMD64" (
+    echo [ERROR] 64-bit Windows is required, this system reports "%ARCH%".
+    goto :fail
+)
+
 set "WINBUILD="
 for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "(Get-CimInstance Win32_OperatingSystem).BuildNumber"`) do set "WINBUILD=%%i"
 if not defined WINBUILD (
     echo [WARN] Could not detect the Windows build number, continuing.
-    goto :vcredist
+    goto :path_check
 )
 echo       Windows build: !WINBUILD!
 if !WINBUILD! LSS 18362 (
@@ -41,17 +54,30 @@ if !WINBUILD! LSS 18362 (
     goto :fail
 )
 
+:path_check
+powershell -NoProfile -Command "if ($env:MT_DIR -match '[^\x00-\x7F]') { exit 1 } else { exit 0 }" >nul 2>&1
+if errorlevel 1 (
+    echo [WARN] The project path contains non-English characters:
+    echo          !MT_DIR!
+    echo        Some Python packages fail in such paths. If the install or the app
+    echo        fails, move the folder to a short English path such as C:\manga-translator-ui
+)
+powershell -NoProfile -Command "$lp=(Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -ErrorAction SilentlyContinue).LongPathsEnabled; if ($env:MT_DIR.Length -gt 80 -and $lp -ne 1) { exit 1 } else { exit 0 }" >nul 2>&1
+if errorlevel 1 (
+    echo [WARN] The project path is long and Windows long paths are disabled.
+    echo        PyTorch has deep file paths and may fail to install. Move the folder to
+    echo        a short path such as C:\manga-translator-ui
+)
+
 REM ---------- 2) Visual C++ runtime ----------
-:vcredist
 echo [2/5] Checking Visual C++ runtime...
-reg query "HKLM\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\X64" /v Installed >nul 2>&1
-if not errorlevel 1 (
+if exist "%SystemRoot%\System32\vcruntime140_1.dll" if exist "%SystemRoot%\System32\msvcp140.dll" (
     echo       Already installed.
     goto :uv
 )
 echo       Not found. Downloading Microsoft Visual C++ Redistributable ^(x64^)...
 set "VCREDIST=%TEMP%\vc_redist.x64.exe"
-powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri 'https://aka.ms/vs/17/release/vc_redist.x64.exe' -OutFile '%VCREDIST%'"
+powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri 'https://aka.ms/vs/17/release/vc_redist.x64.exe' -OutFile $env:VCREDIST"
 if errorlevel 1 (
     echo [ERROR] Download failed. Install it manually from:
     echo         https://aka.ms/vs/17/release/vc_redist.x64.exe
@@ -59,11 +85,13 @@ if errorlevel 1 (
 )
 echo       Installing ^(accept the administrator prompt^)...
 "%VCREDIST%" /install /passive /norestart
-if errorlevel 1 if not "!ERRORLEVEL!"=="3010" (
-    echo [ERROR] Visual C++ runtime installation failed ^(code !ERRORLEVEL!^).
+set "RC=!ERRORLEVEL!"
+REM 0 = installed, 1638 = a newer version is already installed, 3010 = restart required
+if "!RC!"=="3010" echo [INFO] Restart Windows after this installer finishes.
+if not "!RC!"=="0" if not "!RC!"=="1638" if not "!RC!"=="3010" (
+    echo [ERROR] Visual C++ runtime installation failed ^(code !RC!^).
     goto :fail
 )
-if "!ERRORLEVEL!"=="3010" echo [INFO] A restart may be needed after the installation finishes.
 
 REM ---------- 3) uv ----------
 :uv
@@ -101,26 +129,39 @@ if errorlevel 1 (
 )
 
 REM ---------- 5) Verify ----------
-echo [5/5] Verifying PyTorch and DirectML...
-".venv\Scripts\python.exe" -c "import torch, onnxruntime as o; p=o.get_available_providers(); print('       torch', torch.__version__, '| onnxruntime', o.__version__); print('       providers:', p); raise SystemExit(0 if 'DmlExecutionProvider' in p else 3)"
-if errorlevel 3 (
-    echo.
-    echo [WARN] DirectML is not visible to ONNX Runtime. The app will still work, but
-    echo        ONNX models will run on the CPU. Update the AMD Radeon driver and make
-    echo        sure the card supports DirectX 12, then run this file again.
+echo [5/5] Verifying the installation...
+powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | ForEach-Object { '      GPU: ' + $_.Name + ' - driver ' + $_.DriverVersion }"
+".venv\Scripts\python.exe" -c "import torch, onnxruntime as o; p=o.get_available_providers(); print('      torch', torch.__version__, '| onnxruntime', o.__version__); print('      ONNX providers:', ', '.join(p)); raise SystemExit(0 if 'DmlExecutionProvider' in p else 3)"
+set "RC=!ERRORLEVEL!"
+if "!RC!"=="3" (
+    echo [WARN] onnxruntime-directml is not active, ONNX models will run on the CPU.
+    echo        Run this file again to repair the environment.
     goto :done
 )
-if errorlevel 1 (
-    echo [ERROR] Verification failed. Run this file again; if it persists, install the
-    echo         Visual C++ runtime manually: https://aka.ms/vs/17/release/vc_redist.x64.exe
+if not "!RC!"=="0" (
+    echo [ERROR] PyTorch or ONNX Runtime failed to load ^(code !RC!^).
+    echo         Restart Windows if the Visual C++ runtime was just installed, then run
+    echo         this file again. Manual runtime download:
+    echo         https://aka.ms/vs/17/release/vc_redist.x64.exe
     goto :fail
 )
+echo       DirectML is installed. The app log shows "ONNX Runtime is using DirectML"
+echo       when a model really runs on the GPU; otherwise it falls back to the CPU.
+echo       Keep the AMD Radeon driver up to date for DirectX 12 / DirectML.
 
 :done
 echo.
 echo ============================================================
 echo  Done. Start the app with Win10-RX580-Start.bat
 echo ============================================================
+if /I "%~1"=="--no-start" goto :end
+echo.
+choice /C YN /N /T 30 /D Y /M "Start the app now? [Y/N] (Y in 30 s): "
+if errorlevel 2 goto :end
+call "%~dp0Win10-RX580-Start.bat"
+exit /b !ERRORLEVEL!
+
+:end
 pause
 exit /b 0
 

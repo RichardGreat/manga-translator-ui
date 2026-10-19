@@ -304,3 +304,14 @@ def test_legacy_rocm_runtime_preserves_rocm_group(monkeypatch):
         "ROCm",
         "ROCm 7.2.53211-158bd99533",
     )
+
+
+def test_cpu_torch_with_onnxruntime_directml_maps_to_directml_group():
+    launch = load_launch("launch_directml_variant_test")
+
+    assert launch.dependency_variant_from_pytorch("CPU", "CPU-only") == "cpu"
+    assert (
+        launch.dependency_variant_from_pytorch("CPU", "CPU-only + onnxruntime-directml 1.24.4")
+        == "directml"
+    )
+    assert launch.get_variant_index_url("directml") == "https://download.pytorch.org/whl/cpu"

@@ -1254,7 +1254,12 @@ try:
     elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
         print("Metal|MPS")
     else:
-        print("CPU|CPU-only")
+        # CPU torch + onnxruntime-directml is the "directml" group, not "cpu".
+        try:
+            from importlib.metadata import version
+            print(f"CPU|CPU-only + onnxruntime-directml {version('onnxruntime-directml')}")
+        except Exception:
+            print("CPU|CPU-only")
 except (ImportError, AttributeError):
     print("None|未安装")
 except OSError as e:
@@ -1298,7 +1303,7 @@ def dependency_variant_from_pytorch(pytorch_type, detail):
     if pytorch_type in ("AMD", "ROCm"):
         return 'rocm7.2.1'
     if pytorch_type == "CPU":
-        return 'cpu'
+        return 'directml' if 'onnxruntime-directml' in (detail or '') else 'cpu'
     return None
 
 

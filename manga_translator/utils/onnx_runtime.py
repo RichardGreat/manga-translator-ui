@@ -32,10 +32,17 @@ def set_onnx_directml_enabled(enabled: bool) -> None:
     _ENABLE_ONNX_DIRECTML = bool(enabled)
 
 
+def _is_directml_requested() -> bool:
+    # A non-empty MT_ONNX_DIRECTML overrides the config switch in both directions.
+    env_value = os.getenv("MT_ONNX_DIRECTML", "").strip()
+    if env_value:
+        return _is_truthy(env_value)
+    return _ENABLE_ONNX_DIRECTML
+
+
 def is_onnx_directml_enabled() -> bool:
     """Return True when DirectML is requested by config or env and GPU use is not disabled."""
-    requested = _ENABLE_ONNX_DIRECTML or _is_truthy(os.getenv("MT_ONNX_DIRECTML", ""))
-    return requested and not is_onnx_gpu_disabled()
+    return _is_directml_requested() and not is_onnx_gpu_disabled()
 
 
 def import_onnxruntime(import_error_message: str = ""):
@@ -105,7 +112,7 @@ def build_execution_providers(
     Build providers in ONNX Runtime official format:
     [("CUDAExecutionProvider", {...}), "CPUExecutionProvider"].
 
-    When CUDA is not requested and DirectML is enabled (``set_onnx_directml_enabled``
+    When no CUDA provider is used and DirectML is enabled (``set_onnx_directml_enabled``
     or ``MT_ONNX_DIRECTML=1``), DmlExecutionProvider is placed before the CPU provider
     if the installed onnxruntime build exposes it.
     """
@@ -114,6 +121,7 @@ def build_execution_providers(
     onnx_gpu_disabled = is_onnx_gpu_disabled()
     if disable_onnx_gpu is not None:
         onnx_gpu_disabled = bool(disable_onnx_gpu) or onnx_gpu_disabled
+    use_directml = not onnx_gpu_disabled and _is_directml_requested()
     providers: list[Any] = []
 
     if wants_cuda and onnx_gpu_disabled:
@@ -143,10 +151,10 @@ def build_execution_providers(
             # provider options empty unless a caller explicitly overrides it.
             options = dict(cuda_options) if cuda_options else {}
             providers.append(("CUDAExecutionProvider", options))
-        elif logger is not None:
+        elif logger is not None and not use_directml:
             logger.warning(f"CUDAExecutionProvider not available, fallback to CPU: {available_providers}")
 
-    elif is_onnx_directml_enabled():
+    if not providers and use_directml:
         available_providers = []
         try:
             available_providers = ort.get_available_providers()
@@ -168,6 +176,38 @@ def build_execution_providers(
     return providers
 
 
+class _CpuFallbackSession:
+    """Wrap a DirectML session and move the model to CPU if inference fails on the GPU.
+
+    DirectML errors (out of VRAM, device removed/TDR on older drivers) surface only at
+    run() time, after session creation succeeded, so they need a runtime fallback.
+    """
+
+    def __init__(self, session: Any, create_cpu_session: Any, logger: Any = None):
+        self._session = session
+        self._create_cpu_session = create_cpu_session
+        self._logger = logger
+        self._on_cpu = False
+
+    def run(self, *args: Any, **kwargs: Any) -> Any:
+        if self._on_cpu:
+            return self._session.run(*args, **kwargs)
+        try:
+            return self._session.run(*args, **kwargs)
+        except Exception as exc:
+            # Bad inputs fail the same way on CPU; only device failures are worth a retry.
+            if type(exc).__name__ == "InvalidArgument":
+                raise
+            if self._logger is not None:
+                self._logger.warning(f"DirectML inference failed, switching this model to CPU: {exc}")
+            self._session = self._create_cpu_session()
+            self._on_cpu = True
+            return self._session.run(*args, **kwargs)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._session, name)
+
+
 def create_inference_session(
     ort: Any,
     model_path: ModelPath,
@@ -181,8 +221,9 @@ def create_inference_session(
     preload_cuda_dlls: bool = True,
 ) -> tuple[Any, str]:
     """
-    Create InferenceSession with standard provider order and optional CUDA->CPU fallback.
+    Create InferenceSession with standard provider order and optional GPU->CPU fallback.
     Returns (session, active_device), where active_device is 'cuda', 'directml' or 'cpu'.
+    DirectML sessions also fall back to CPU at run() time when fallback_to_cpu is set.
     """
     providers = build_execution_providers(
         ort,
@@ -197,6 +238,13 @@ def create_inference_session(
     model_path_str = str(model_path)
     tried_gpu = any(_provider_has_gpu(provider) for provider in providers)
 
+    def create_cpu_session() -> Any:
+        return ort.InferenceSession(
+            model_path_str,
+            sess_options=sess_options,
+            providers=["CPUExecutionProvider"],
+        )
+
     if any(_provider_name(provider) == _DML_PROVIDER for provider in providers):
         # DirectML requires these two settings (ONNX Runtime DirectML EP docs).
         sess_options.enable_mem_pattern = False
@@ -208,11 +256,7 @@ def create_inference_session(
         if fallback_to_cpu and tried_gpu:
             if logger is not None:
                 logger.warning(f"GPU session creation failed, fallback to CPU: {exc}")
-            session = ort.InferenceSession(
-                model_path_str,
-                sess_options=sess_options,
-                providers=["CPUExecutionProvider"],
-            )
+            session = create_cpu_session()
         else:
             raise
 
@@ -221,6 +265,10 @@ def create_inference_session(
         active_device = "cuda"
     elif _DML_PROVIDER in active_providers:
         active_device = "directml"
+        if logger is not None:
+            logger.info(f"ONNX Runtime is using DirectML for {Path(model_path_str).name}")
+        if fallback_to_cpu:
+            session = _CpuFallbackSession(session, create_cpu_session, logger)
     else:
         active_device = "cpu"
     return session, active_device

@@ -168,7 +168,7 @@ cd manga-translator-ui
 
 ### 2. 安装依赖
 
-依赖声明在 `pyproject.toml`。`cpu` / `cuda13.0` / `cuda12.6` / `rocm7.2.1` / `metal` 五个 dependency groups 互斥，只选择一个后端：
+依赖声明在 `pyproject.toml`。`cpu` / `cuda13.0` / `cuda12.6` / `rocm7.2.1` / `directml` / `metal` 六个 dependency groups 互斥，只选择一个后端：
 
 ```bash
 # NVIDIA CUDA 13.0（源码开发默认）
@@ -182,6 +182,10 @@ uv sync --no-default-groups --group cpu
 
 # Linux AMD ROCm 7.2；Windows 使用安装器提供的 ROCm 7.2.1 流程
 uv sync --no-default-groups --group rocm7.2.1
+
+# Windows DirectML（无 ROCm 支持的 AMD/Intel 显卡，如 RX 580）：CPU PyTorch + onnxruntime-directml，
+# 需开启 cli.onnx_directml（见 doc/HARDWARE_RX580_2048SP.md）
+uv sync --no-default-groups --group directml
 
 # Apple Silicon / Metal
 uv sync --no-default-groups --group metal

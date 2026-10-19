@@ -170,7 +170,7 @@ cd manga-translator-ui
 
 ### 2. Install dependencies
 
-Dependencies are declared in `pyproject.toml`. The five dependency groups `cpu` / `cuda13.0` / `cuda12.6` / `rocm7.2.1` / `metal` are mutually exclusive; select one backend:
+Dependencies are declared in `pyproject.toml`. The six dependency groups `cpu` / `cuda13.0` / `cuda12.6` / `rocm7.2.1` / `directml` / `metal` are mutually exclusive; select one backend:
 
 ```bash
 # NVIDIA CUDA 13.0 (source-development default)
@@ -184,6 +184,10 @@ uv sync --no-default-groups --group cpu
 
 # Linux AMD ROCm 7.2; Windows uses the installer's ROCm 7.2.1 flow
 uv sync --no-default-groups --group rocm7.2.1
+
+# Windows DirectML (AMD/Intel GPUs without ROCm, e.g. RX 580): CPU PyTorch + onnxruntime-directml,
+# enable with cli.onnx_directml (see doc/HARDWARE_RX580_2048SP.md)
+uv sync --no-default-groups --group directml
 
 # Apple Silicon / Metal
 uv sync --no-default-groups --group metal
